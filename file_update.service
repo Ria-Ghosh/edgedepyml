@@ -1,0 +1,10 @@
+[Unit]
+Description=<Update files on reboot>
+Requires=basic.target network-online.target
+After=basic.target network-online.target
+
+[Service]
+ExecStart=/home/setup/file_update.sh
+
+[Install]
+WantedBy=multi-user.target
