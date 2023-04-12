@@ -2,7 +2,6 @@ import os
 import httpx
 import time
 
-time.sleep(60)
 def get_device_serial():
   serial = None
   # string to search in file
