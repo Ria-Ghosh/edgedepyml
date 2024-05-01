@@ -1,0 +1,318 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hivemq
+  namespace: dkart-cluster
+spec:
+  selector:
+    matchLabels:
+      app: hivemq
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: hivemq
+    spec:
+      containers:
+        - name: hivemq
+          image: hivemq/hivemq4
+          ports:
+            - containerPort: 1883
+            - containerPort: 8000
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: hivemq-service
+  namespace: dkart-cluster
+spec:
+  selector:
+    app: hivemq
+  ports:
+    - protocol: TCP
+      name: mqtt
+      port: 1883
+      targetPort: 1883
+      nodePort: 31000
+    - protocol: TCP
+      name: websocket
+      port: 8000
+      targetPort: 8000
+      nodePort: 31600
+  type: NodePort
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: hivemq-clusterip-service
+  namespace: dkart-cluster 
+spec:
+  selector:
+    app: hivemq
+  ports:
+    - protocol: TCP
+      port: 1883
+      targetPort: 1883
+  type: ClusterIP
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: dkart-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:4.4
+          command: ["bash", "-c"]
+          args:
+          - "mongod --bind_ip_all --replSet rs0 & until mongo --eval 'db.runCommand({ping: 1})'; do sleep 1; done; mongo --eval 'rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"localhost:27017\"}]});' && tail -f /dev/null;"
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+      volumes:
+      - name: mongo-data
+        hostPath:
+            path: /usr/local/dkart/data/mongo1
+            type: DirectoryOrCreate
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+  namespace: dkart-cluster
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - protocol: TCP
+      port: 27017
+  type: ClusterIP
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: vision-ai
+  namespace: dkart-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vision-ai
+  template:
+    metadata:
+      labels:
+        app: vision-ai
+    spec:
+      containers:
+        - name: vision-ai
+          securityContext:
+            privileged: true
+          image: crdigitkartprod.azurecr.io/dk-seg-vai-service:latest
+          imagePullPolicy: Always
+          command: ['python3']
+          args: ['image_recognition/app.py']
+          envFrom:
+            - configMapRef:
+                name: dkart-cluster-conf
+          volumeMounts:
+            - name: cam1
+              mountPath: /dev/video0
+            - name: cam2
+              mountPath: /dev/video2
+            - name: cam3
+              mountPath: /dev/video4
+            - name: logs-volume
+              mountPath: /app/logs
+            - name: assets-volume
+              mountPath: /app/assets
+      volumes:
+        - name: cam1
+          hostPath:
+            path: /dev/video0
+        - name: cam2
+          hostPath:
+            path: /dev/video2
+        - name: cam3
+          hostPath:
+            path: /dev/video4
+        - name: logs-volume
+          hostPath:
+            path: /var/log/dkart
+            type: DirectoryOrCreate
+        - name: assets-volume
+          hostPath:
+            path: /usr/local/dkart/assets
+            type: DirectoryOrCreate
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: transaction-api
+  namespace: dkart-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-api
+  template:
+    metadata:
+      labels:
+        app: transaction-api
+    spec:
+      containers:
+        - name: transaction-api
+          securityContext:
+            privileged: true
+          image: crdigitkartprod.azurecr.io/dk-edge-transaction-service:latest
+          imagePullPolicy: Always
+          command: ['python3']
+          args: ['main.py']
+          envFrom:
+            - configMapRef:
+                name: dkart-cluster-conf
+          ports:
+            - containerPort: 8000
+
+          volumeMounts:
+            - name: usb-bus
+              mountPath: /dev/bus/usb
+            - name: assets-volume
+              mountPath: /app/assets
+            - name: logs-volume
+              mountPath: /app/logs
+      volumes:
+      - name: usb-bus
+        hostPath:
+            path: /dev/bus/usb
+      - name: logs-volume
+        hostPath:
+            path: /var/log/dkart
+            type: DirectoryOrCreate
+      - name: assets-volume
+        hostPath:
+            path: /usr/local/dkart/assets
+            type: DirectoryOrCreate
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-api-nodeip-service
+  namespace: dkart-cluster
+spec:
+  selector:
+    app: transaction-api
+  ports:
+    - protocol: TCP
+      port: 8000 
+      targetPort: 8000
+      nodePort: 31800
+  type: NodePort
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-api-clusterip-service
+  namespace: dkart-cluster
+spec:
+  selector:
+    app: transaction-api
+  ports:
+    - protocol: TCP
+      port: 8000 
+      targetPort: 8000
+  type: ClusterIP
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: transaction-sync
+  namespace: dkart-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-sync
+  template:
+    metadata:
+      labels:
+        app: transaction-sync
+    spec:
+      containers:
+        - name: transaction-sync
+          securityContext:
+            privileged: true
+          image: crdigitkartprod.azurecr.io/dk-edge-transaction-sync-service:latest
+          imagePullPolicy: Always
+          command: ['python3']
+          args: ['main.py']
+          envFrom:
+            - configMapRef:
+                name: dkart-cluster-conf
+          ports:
+            - containerPort: 9500
+          volumeMounts:
+            - name: usb-bus
+              mountPath: /dev/bus/usb
+            - name: assets-volume
+              mountPath: /app/assets
+            - name: logs-volume
+              mountPath: /app/logs
+      volumes:
+        - name: usb-bus
+          hostPath:
+            path: /dev/bus/usb
+        - name: assets-volume
+          hostPath:
+            path: /usr/local/dkart/assets
+            type: DirectoryOrCreate
+        - name: logs-volume
+          hostPath:
+            path: /var/log/dkart
+            type: DirectoryOrCreate
+
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-sync-service
+  namespace: dkart-cluster
+spec:
+  selector:
+    app: transaction-sync
+  ports:
+    - protocol: TCP
+      port: 9500
+      targetPort: 9500
+  type: ClusterIP
